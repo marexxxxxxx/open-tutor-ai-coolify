@@ -1,0 +1,192 @@
+# syntax=docker/dockerfile:1
+# Coolify-optimized Dockerfile for Open TutorAI
+# Combines backend and frontend into a single container for Coolify deployment
+
+# Build arguments for customization
+ARG USE_CUDA=false
+ARG USE_OLLAMA=true
+ARG USE_CUDA_VER=cu121
+ARG USE_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+ARG USE_RERANKING_MODEL=""
+ARG BUILD_HASH=coolify-build
+ARG UID=1000
+ARG GID=1000
+
+# Stage 1: Frontend Build
+FROM node:22-alpine AS frontend-builder
+
+# Install system dependencies for frontend
+RUN apk add --no-cache python3 make g++ git
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY vite.config.ts ./
+COPY svelte.config.js ./
+COPY tsconfig.json ./
+COPY postcss.config.js ./
+COPY tailwind.config.js ./
+
+# Install dependencies
+RUN npm ci
+
+# Install pyodide specifically
+RUN npm install pyodide@0.27.2
+
+# Copy frontend source
+COPY src/ ./src/
+COPY static/ ./static/
+
+# Generate SvelteKit files and build
+RUN npm run pyodide:fetch
+RUN npm run build
+
+# Stage 2: Backend Build
+FROM python:3.11-slim-bookworm AS backend-builder
+
+# Use build args
+ARG USE_CUDA
+ARG USE_OLLAMA
+ARG USE_CUDA_VER
+ARG USE_EMBEDDING_MODEL
+ARG USE_RERANKING_MODEL
+ARG UID
+ARG GID
+
+# Backend environment setup
+ENV ENV=prod \
+    PORT=8080 \
+    USE_OLLAMA_DOCKER=${USE_OLLAMA} \
+    USE_CUDA_DOCKER=${USE_CUDA} \
+    USE_CUDA_DOCKER_VER=${USE_CUDA_VER} \
+    USE_EMBEDDING_MODEL_DOCKER=${USE_EMBEDDING_MODEL} \
+    USE_RERANKING_MODEL_DOCKER=${USE_RERANKING_MODEL} \
+    OLLAMA_BASE_URL="/ollama" \
+    OPENAI_API_BASE_URL="" \
+    OPENAI_API_KEY="" \
+    WEBUI_SECRET_KEY="" \
+    SCARF_NO_ANALYTICS=true \
+    DO_NOT_TRACK=true \
+    ANONYMIZED_TELEMETRY=false \
+    WHISPER_MODEL="base" \
+    WHISPER_MODEL_DIR="/app/backend/data/cache/whisper/models" \
+    RAG_EMBEDDING_MODEL="$USE_EMBEDDING_MODEL_DOCKER" \
+    RAG_RERANKING_MODEL="$USE_RERANKING_MODEL_DOCKER" \
+    SENTENCE_TRANSFORMERS_HOME="/app/backend/data/cache/embedding/models" \
+    TIKTOKEN_ENCODING_NAME="cl100k_base" \
+    TIKTOKEN_CACHE_DIR="/app/backend/data/cache/tiktoken" \
+    HF_HOME="/app/backend/data/cache/embedding/models" \
+    HOME=/app
+
+WORKDIR /app
+
+# Create user and group
+RUN groupadd -g ${GID} app && \
+    useradd -m -u ${UID} -g ${GID} app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git build-essential pandoc gcc netcat-openbsd curl jq \
+    python3-dev ffmpeg libsm6 libxext6 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Ollama if enabled
+RUN if [ "$USE_OLLAMA" = "true" ]; then \
+    curl -fsSL https://ollama.com/install.sh | sh; \
+    fi
+
+# Copy backend requirements
+COPY backend/requirements.txt ./backend/requirements.txt
+
+# Install Python dependencies
+RUN pip3 install uv && \
+    if [ "$USE_CUDA" = "true" ]; then \
+    pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/$USE_CUDA_DOCKER_VER --no-cache-dir; \
+    else \
+    pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir; \
+    fi && \
+    uv pip install --system -r backend/requirements.txt --no-cache-dir
+
+# Download models during build for faster startup
+RUN python3 -c "from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')" && \
+    python3 -c "from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])" && \
+    python3 -c "import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])"
+
+# Stage 3: Final Runtime Image
+FROM python:3.11-slim-bookworm AS final
+
+# Runtime environment variables
+ENV ENV=prod \
+    PORT=8080 \
+    PYTHONUNBUFFERED=1 \
+    OLLAMA_BASE_URL="/ollama" \
+    OPENAI_API_BASE_URL="" \
+    SCARF_NO_ANALYTICS=true \
+    DO_NOT_TRACK=true \
+    ANONYMIZED_TELEMETRY=false \
+    WHISPER_MODEL="base" \
+    WHISPER_MODEL_DIR="/app/backend/data/cache/whisper/models" \
+    RAG_EMBEDDING_MODEL="sentence-transformers/all-MiniLM-L6-v2" \
+    RAG_RERANKING_MODEL="" \
+    SENTENCE_TRANSFORMERS_HOME="/app/backend/data/cache/embedding/models" \
+    TIKTOKEN_ENCODING_NAME="cl100k_base" \
+    TIKTOKEN_CACHE_DIR="/app/backend/data/cache/tiktoken" \
+    HF_HOME="/app/backend/data/cache/embedding/models" \
+    HOME=/app
+
+WORKDIR /app
+
+# Create user and directories
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g ${GID} app && \
+    useradd -m -u ${UID} -g ${GID} app && \
+    mkdir -p /app/backend/data/cache /app/backend/data/uploads /app/static && \
+    chown -R ${UID}:${GID} /app
+
+# Copy backend from builder
+COPY --from=backend-builder --chown=${UID}:${GID} /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=backend-builder --chown=${UID}:${GID} /usr/local/bin /usr/local/bin
+COPY --from=backend-builder --chown=${UID}:${GID} /app/backend /app/backend
+COPY --from=backend-builder --chown=${UID}:${GID} /root/.cache /root/.cache
+
+# Copy frontend build from builder
+COPY --from=frontend-builder --chown=${UID}:${GID} /app/build /app/static/frontend
+COPY --from=frontend-builder --chown=${UID}:${GID} /app/static /app/static
+
+# Install additional runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl jq netcat-openbsd ffmpeg libsm6 libxext6 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy startup and utility scripts
+COPY scripts/coolify-setup.sh /usr/local/bin/coolify-setup.sh
+COPY scripts/health-check.sh /usr/local/bin/health-check.sh
+COPY scripts/migrate.sh /usr/local/bin/migrate.sh
+RUN chmod +x /usr/local/bin/coolify-setup.sh /usr/local/bin/health-check.sh /usr/local/bin/migrate.sh
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD /usr/local/bin/health-check.sh
+
+# Set user
+USER ${UID}:${GID}
+
+# Environment variables for build info
+ARG BUILD_HASH
+ENV WEBUI_BUILD_VERSION=${BUILD_HASH}
+ENV DOCKER=true
+
+# Copy entrypoint script
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Default command
+CMD ["/usr/local/bin/entrypoint.sh"]

@@ -1,0 +1,190 @@
+{
+  "name": "Open TutorAI",
+  "description": "An open-source educational and collaborative AI-powered platform with voice, video, and avatar discussion capabilities",
+  "version": "0.5.16",
+  "author": "Open TutorAI Team",
+  "website": "https://opentutorai.com",
+  "repository": "https://github.com/Open-TutorAi/open-tutor-ai-CE",
+  "license": "BSD-3-Clause",
+  "categories": ["AI", "Education", "Chat"],
+  "tags": ["ai", "education", "chat", "ollama", "openai", "svelte", "fastapi"],
+  "logo": "https://opentutorai.com/assets/logo.png",
+  "preview": "https://opentutorai.com/assets/preview.png",
+  
+  "services": {
+    "open-tutorai": {
+      "type": "dockerfile",
+      "dockerfile": "Dockerfile.coolify",
+      "ports": [
+        {
+          "host": 8080,
+          "container": 8080,
+          "protocol": "tcp",
+          "public": true,
+          "description": "Main application port"
+        }
+      ],
+      "volumes": [
+        {
+          "host": "open-tutorai-data",
+          "container": "/app/backend/data",
+          "description": "Application data and cache"
+        },
+        {
+          "host": "open-tutorai-uploads", 
+          "container": "/app/backend/data/uploads",
+          "description": "User uploads storage"
+        },
+        {
+          "host": "open-tutorai-models",
+          "container": "/app/backend/data/cache/embedding/models",
+          "description": "AI models cache"
+        }
+      ],
+      "health_check": {
+        "protocol": "http",
+        "path": "/health",
+        "port": 8080,
+        "interval": 30,
+        "timeout": 10,
+        "retries": 5,
+        "start_period": 60
+      },
+      "build_args": {
+        "USE_CUDA": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable CUDA support for GPU acceleration"
+        },
+        "USE_OLLAMA": {
+          "type": "boolean", 
+          "default": true,
+          "description": "Include Ollama support in the container"
+        },
+        "USE_EMBEDDING_MODEL": {
+          "type": "string",
+          "default": "sentence-transformers/all-MiniLM-L6-v2",
+          "description": "Sentence transformer model for embeddings"
+        },
+        "USE_RERANKING_MODEL": {
+          "type": "string",
+          "default": "",
+          "description": "Reranking model for RAG (optional)"
+        }
+      }
+    }
+  },
+
+  "databases": {
+    "postgresql": {
+      "enabled": true,
+      "version": "15",
+      "name": "open_tutorai",
+      "username": "tutorai_user",
+      "password": {
+        "type": "secret",
+        "description": "PostgreSQL database password"
+      },
+      "port": 5432,
+      "extensions": ["pgvector"]
+    }
+  },
+
+  "environment_variables": {
+    "required": {
+      "POSTGRES_HOST": {
+        "type": "string",
+        "description": "PostgreSQL host address",
+        "default": "localhost"
+      },
+      "POSTGRES_PORT": {
+        "type": "string", 
+        "description": "PostgreSQL port",
+        "default": "5432"
+      },
+      "POSTGRES_DB": {
+        "type": "string",
+        "description": "PostgreSQL database name",
+        "default": "open_tutorai"
+      },
+      "POSTGRES_USER": {
+        "type": "string",
+        "description": "PostgreSQL username",
+        "default": "tutorai_user"
+      },
+      "POSTGRES_PASSWORD": {
+        "type": "secret",
+        "description": "PostgreSQL password"
+      },
+      "WEBUI_SECRET_KEY": {
+        "type": "secret",
+        "description": "Secret key for session management",
+        "default": "auto-generated"
+      }
+    },
+    "optional": {
+      "OLLAMA_BASE_URL": {
+        "type": "string",
+        "description": "Ollama API base URL",
+        "default": "http://localhost:11434"
+      },
+      "OPENAI_API_BASE_URL": {
+        "type": "string",
+        "description": "OpenAI API base URL",
+        "default": ""
+      },
+      "OPENAI_API_KEY": {
+        "type": "secret",
+        "description": "OpenAI API key (optional)"
+      },
+      "ENABLE_SIGNUP": {
+        "type": "boolean",
+        "description": "Enable user registration",
+        "default": true
+      },
+      "WHISPER_MODEL": {
+        "type": "string",
+        "description": "Whisper model for speech recognition",
+        "default": "base"
+      },
+      "RAG_EMBEDDING_MODEL": {
+        "type": "string",
+        "description": "Embedding model for RAG",
+        "default": "sentence-transformers/all-MiniLM-L6-v2"
+      },
+      "TIKTOKEN_ENCODING_NAME": {
+        "type": "string",
+        "description": "Tiktoken encoding name",
+        "default": "cl100k_base"
+      },
+      "AUTOMATIC1111_BASE_URL": {
+        "type": "string",
+        "description": "AUTOMATIC1111 API URL for image generation",
+        "default": ""
+      }
+    }
+  },
+
+  "scripts": {
+    "post_install": "scripts/coolify-setup.sh",
+    "health_check": "scripts/health-check.sh",
+    "migrate": "scripts/migrate.sh"
+  },
+
+  "resources": {
+    "cpu": "2",
+    "memory": "4096",
+    "storage": "20"
+  },
+
+  "documentation": {
+    "installation": "README.md",
+    "troubleshooting": "TROUBLESHOOTING.md",
+    "api_docs": "/docs"
+  },
+
+  "notifications": {
+    "webhook_url": "",
+    "events": ["deploy", "health_check_failed"]
+  }
+}
