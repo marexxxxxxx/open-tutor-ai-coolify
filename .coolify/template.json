@@ -58,8 +58,8 @@
         },
         "USE_OLLAMA": {
           "type": "boolean", 
-          "default": true,
-          "description": "Include Ollama support in the container"
+          "default": false,
+          "description": "Include Ollama support in the container (set to false for external AI services)"
         },
         "USE_EMBEDDING_MODEL": {
           "type": "string",
@@ -125,17 +125,17 @@
     "optional": {
       "OLLAMA_BASE_URL": {
         "type": "string",
-        "description": "Ollama API base URL",
-        "default": "http://localhost:11434"
+        "description": "Ollama API base URL (leave empty for external AI services)",
+        "default": ""
       },
       "OPENAI_API_BASE_URL": {
         "type": "string",
-        "description": "OpenAI API base URL",
-        "default": ""
+        "description": "External AI API base URL (e.g., llama.cpp at http://192.168.1.24:8080/v1)",
+        "default": "http://192.168.1.24:8080/v1"
       },
       "OPENAI_API_KEY": {
         "type": "secret",
-        "description": "OpenAI API key (optional)"
+        "description": "API key for external AI service (leave empty for llama.cpp without auth)"
       },
       "ENABLE_SIGNUP": {
         "type": "boolean",

@@ -4,7 +4,7 @@
 
 # Build arguments for customization
 ARG USE_CUDA=false
-ARG USE_OLLAMA=true
+ARG USE_OLLAMA=false
 ARG USE_CUDA_VER=cu121
 ARG USE_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 ARG USE_RERANKING_MODEL=""
@@ -122,8 +122,9 @@ FROM python:3.11-slim-bookworm AS final
 ENV ENV=prod \
     PORT=8080 \
     PYTHONUNBUFFERED=1 \
-    OLLAMA_BASE_URL="/ollama" \
-    OPENAI_API_BASE_URL="" \
+    OLLAMA_BASE_URL="" \
+    OPENAI_API_BASE_URL="http://192.168.1.24:8080/v1" \
+    OPENAI_API_KEY="" \
     SCARF_NO_ANALYTICS=true \
     DO_NOT_TRACK=true \
     ANONYMIZED_TELEMETRY=false \

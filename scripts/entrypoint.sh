@@ -48,6 +48,15 @@ setup_application() {
         bash "$SCRIPT_DIR/coolify-setup.sh"
     fi
     
+    # Verify external AI service connection
+    echo "🔍 Testing connection to external AI service at 192.168.1.24:8080..."
+    if curl -f -s --max-time 10 http://192.168.1.24:8080/v1/models >/dev/null; then
+        echo "✅ External AI service is reachable"
+    else
+        echo "⚠️  Warning: External AI service at 192.168.1.24:8080 may not be available"
+        echo "   Please ensure your llama.cpp server is running and accessible"
+    fi
+    
     echo "✅ Application setup completed"
 }
 
